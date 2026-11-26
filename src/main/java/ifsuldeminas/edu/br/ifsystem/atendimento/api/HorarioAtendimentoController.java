@@ -29,4 +29,10 @@ public class HorarioAtendimentoController {
     public ResponseEntity<HorarioResposta> criar(@RequestBody CriarHorario dto) {
         return ResponseEntity.status(HttpStatus.CREATED).body(service.criarHorario(dto));
     }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> remover(@PathVariable UUID id) {
+        service.removerHorario(id);
+        return ResponseEntity.noContent().build();
+    }
 }

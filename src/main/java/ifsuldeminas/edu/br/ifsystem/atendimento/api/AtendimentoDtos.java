@@ -22,7 +22,7 @@ public final class AtendimentoDtos {
 
     public record EnviarMensagem(String conteudo) {}
 
-    public record CriarHorario(DayOfWeek diaSemana, LocalTime horarioInicio, LocalTime horarioFim) {}
+    public record CriarHorario(DayOfWeek diaSemana, LocalTime horarioInicio, LocalTime horarioFim, String area) {}
 
     // ---------- saída ----------
     public record Janela(LocalDate data, DayOfWeek diaSemana, LocalTime inicio, LocalTime fim) {}

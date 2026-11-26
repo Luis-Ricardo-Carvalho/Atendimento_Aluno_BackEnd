@@ -202,6 +202,7 @@ public class AtendimentoService {
     @Transactional(readOnly = true)
     public List<HorarioResposta> listarHorarios(UUID profissionalUsuarioId) {
         UUID alvo = profissionalUsuarioId != null ? profissionalUsuarioId : usuarioLogado.obter().getId();
+        if (profissionalUsuarioId == null && perfis.findByUsuarioId(alvo).isEmpty()) return List.of();
         ProfissionalAtendimento p = perfis.findByUsuarioId(alvo)
                 .orElseThrow(() -> erro(HttpStatus.NOT_FOUND, "Profissional não encontrado."));
         return horarios.findByProfissionalIdAndAtivoTrue(p.getId()).stream().map(this::horarioResposta).toList();
@@ -210,8 +211,17 @@ public class AtendimentoService {
     @Transactional
     public HorarioResposta criarHorario(CriarHorario dto) {
         Usuario eu = usuarioLogado.obter();
-        ProfissionalAtendimento p = perfis.findByUsuarioId(eu.getId()).filter(ProfissionalAtendimento::isAtivo)
-                .orElseThrow(() -> erro(HttpStatus.FORBIDDEN, "Apenas profissionais podem cadastrar horários."));
+        if (eu.getPerfil() != Perfil.PROFESSOR && eu.getPerfil() != Perfil.SERVIDOR) {
+            throw erro(HttpStatus.FORBIDDEN, "Apenas professores e servidores podem cadastrar horários.");
+        }
+        String area = dto == null || dto.area() == null ? "" : dto.area().trim();
+        if (area.length() > 120) throw erro(HttpStatus.BAD_REQUEST, "O campo área excede 120 caracteres.");
+        // Primeiro horário: habilita o próprio usuário como profissional de atendimento.
+        ProfissionalAtendimento p = perfis.findByUsuarioId(eu.getId())
+                .orElseGet(() -> perfis.save(new ProfissionalAtendimento(usuarios.getReferenceById(eu.getId()),
+                        area.isEmpty() ? "Atendimento ao aluno" : area)));
+        if (!p.isAtivo()) throw erro(HttpStatus.FORBIDDEN, "Seu perfil de atendimento está inativo.");
+        if (!area.isEmpty()) p.atualizarArea(area);
         if (dto == null || dto.diaSemana() == null || dto.horarioInicio() == null || dto.horarioFim() == null) {
             throw erro(HttpStatus.BAD_REQUEST, "Informe dia da semana, início e fim.");
         }
@@ -222,6 +232,18 @@ public class AtendimentoService {
                 .anyMatch(h -> h.conflitaCom(dto.diaSemana(), dto.horarioInicio(), dto.horarioFim()));
         if (conflito) throw erro(HttpStatus.CONFLICT, "Já existe um horário que conflita com este período.");
         return horarioResposta(horarios.save(factory.criarHorario(p, dto.diaSemana(), dto.horarioInicio(), dto.horarioFim())));
+    }
+
+    @Transactional
+    public void removerHorario(UUID id) {
+        Usuario eu = usuarioLogado.obter();
+        HorarioAtendimento h = horarios.findById(id)
+                .orElseThrow(() -> erro(HttpStatus.NOT_FOUND, "Horário não encontrado."));
+        if (!h.getProfissional().getUsuario().getId().equals(eu.getId())) {
+            throw erro(HttpStatus.FORBIDDEN, "Você só pode remover os seus próprios horários.");
+        }
+        h.desativar();
+        horarios.save(h);
     }
 
     // ===================== INTERNOS =====================
