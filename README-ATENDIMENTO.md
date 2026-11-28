@@ -29,6 +29,7 @@ inicialização, então sempre há alguém "Disponível agora". Sem senhas: no m
 `GET /api/demo/usuarios` lista os usuários (usado pela tela de entrada do front).
 
 ## Produção / Supabase
+Rode antes `supabase/atendimento-schema.sql` no SQL Editor (cria schema, tabelas, índices e RLS; idempotente).
 `ddl-auto=update` cria `profissional_atendimento`, `horario_atendimento`, `atendimento` e `mensagem_atendimento`. Nenhum seed roda sem
 `atendimento.seed.enabled=true` + perfil demo/dev. Para o professor aparecer na lista é preciso um registro em `profissional_atendimento`
 (a tela de cadastro dos profissionais ainda não existe; `POST /api/horarios-atendimento` cadastra horários do próprio profissional).

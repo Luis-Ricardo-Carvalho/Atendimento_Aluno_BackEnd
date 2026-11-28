@@ -22,7 +22,8 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@SpringBootTest
+// Banco próprio: o DemoModeTest faz users.deleteAll() no H2 compartilhado e quebraria nas FKs do módulo.
+@SpringBootTest(properties = "spring.datasource.url=jdbc:h2:mem:atendimento-demo;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE")
 @ActiveProfiles({"demo", "atendimento-demo"})
 class AtendimentoDemoTest {
 

@@ -1,42 +1,51 @@
-# Integração do módulo Atendimento ao Aluno ao IFSISTEM
+# Integração do módulo Atendimento ao Aluno ao login único IFSISTEM
 
-## Deploy do backend na Render (erro "requirements.txt")
-O log mostra `Using Python ... pip install -r requirements.txt`: o serviço foi criado com a linguagem **Python**. Este backend é **Java/Spring Boot**.
-A Render não permite trocar a linguagem de um serviço existente; crie um novo:
-1. Render → New → **Web Service** → repositório do backend (a raiz deve ter `pom.xml` e `Dockerfile.backend`, que estão neste zip).
-2. **Language/Runtime: Docker** · Dockerfile Path: `./Dockerfile.backend` · Health Check Path: `/health`. (Ou use o `render.yaml` deste zip: New → Blueprint.)
-3. Variáveis de ambiente (nunca no Git):
-   | Variável | Valor |
-   |---|---|
-   | `SPRING_PROFILES_ACTIVE` | `supabase` |
-   | `DB_URL` | `jdbc:postgresql://HOST-DO-SESSION-POOLER:5432/postgres?sslmode=require` |
-   | `DB_USERNAME` | `postgres.REFERENCIA-DO-PROJETO` |
-   | `DB_PASSWORD` | senha do banco do SEU projeto Supabase |
-   | `DB_POOL_SIZE` | `4` |
-   | `APP_ALLOWED_ORIGINS` | URL do front (ex.: `https://SEU-FRONT.vercel.app`) |
-   | `AUTH_URL` | opcional (padrão `https://ifsistem-auth.onrender.com`) |
-   Remova `JWT_SECRET`, `ADMIN_*` e `BOOTSTRAP_ADMIN` se existirem: o login é do IFSISTEM. Não ative os perfis `demo`/`dev`/`atendimento-demo` em produção.
-4. No Supabase, execute `supabase/setup.sql` (do repositório do Chaves) uma vez; o Hibernate cria as tabelas do módulo no schema `app_private`.
-5. Render Free dorme após 15 min; se usar keep-alive, restrinja ao horário útil (`*/5 7-18 * * 1-5` em `/health`).
+Dados do módulo: clientId `atendimento` · produção `https://atendimentoalunofrontend.vercel.app` · porta local `5173` · página inicial `/`.
 
-## Etapa 1 · Pedido de cadastro no auth (para a coordenação)
+## Passo 0 · Levantamento
+- **Stack:** Spring Boot 4.1.1, Java 21, Maven; front React 19 + Vite.
+- **Login anterior:** o módulo nasceu sobre a base do Chaves-ifsistem, que já é *resource server* (JWT RS256 do auth, `SsoMirrorFilter`, `CurrentUser`). Não há JWT próprio, HS256/`JWT_SECRET`, endpoints de login/cadastro/senha, AdminBootstrap nem usuários-semente com senha para remover. Um arquivo de teste/demo do módulo (`atendimento-demo`) existe, mas só roda nos perfis `demo`/`dev`.
+- **Usuário atual:** `CurrentUser.require()` (via `UsuarioLogadoProvider`). **Tabela de usuários:** `usuarios` (espelho por `sub`); referenciada pelas tabelas do módulo (`atendimento`, `mensagem_atendimento`, `profissional_atendimento`).
+- **Telas de login/cadastro:** nenhuma própria; usuários são geridos pela API do auth (tela **Usuários**, SERVIDOR/ADMINISTRADOR) e a senha por **Trocar minha senha**.
+
+## Passo 1 · Cadastro do cliente no auth (enviar à equipe do auth)
 ```properties
 auth.clientes[N].client-id=atendimento
-auth.clientes[N].redirect-uris={URL_FRONT}/callback.html,http://localhost:5173/callback.html
-auth.clientes[N].post-logout-redirect-uris={URL_FRONT}/,http://localhost:5173/
+auth.clientes[N].redirect-uris=https://atendimentoalunofrontend.vercel.app/callback.html,http://localhost:5173/callback.html
+auth.clientes[N].post-logout-redirect-uris=https://atendimentoalunofrontend.vercel.app/,http://localhost:5173/
 ```
-Substitua `{URL_FRONT}` pela URL de produção do front, sem barra final (comparação caractere por caractere). Até o cadastro sair, `/oauth2/authorize` responde 400: esperado.
+Nome do módulo: Atendimento ao Aluno · Página inicial: `/`. Deixe `N` para a equipe do auth. As URIs são comparadas caractere a caractere.
 
-## Para o portal
-`{"id": "atendimento", "nome": "Atendimento ao Aluno", "descricao": "Fale com professores e servidores e acompanhe suas solicitações.", "url": "{URL_FRONT}", "ativo": true}`
+## Passos 2 e 3 · Conferência (checklist do prompt)
+| Item | Situação |
+|---|---|
+| `jwk-set-uri` e `issuer-uri` via `AUTH_URL` | herdado do Chaves (`application.properties`) |
+| Converter `perfil` → `ROLE_<PERFIL>`; sem perfil = sem papel | herdado (`SecurityConfig`) |
+| Stateless, CSRF off, 401/403 em JSON, estáticos e `/health` liberados | herdado |
+| Upsert do usuário a partir das claims, sem senha | herdado (`SsoMirrorFilter` + `CurrentUser`) |
+| Rotas do módulo autenticadas (`/api/atendimentos/**`, `/api/horarios-atendimento/**`) | `anyRequest().authenticated()` |
+| `ifsistem-sso.js` copiado + `sso.js` com `clientId: 'atendimento'` | feito (`frontend/public`) |
+| `callback.html` → `handleCallback()` e vai para `/` (restaura a rota pretendida); erro mostra mensagem + "Tentar novamente" | feito |
+| Páginas protegidas: sem token → `login()`; chamadas via `IfsistemSSO.fetch`; nome/perfil de `usuario()` | feito |
+| Sair → `IfsistemSSO.logout()` | feito |
+| Botão "Entrar com IFSISTEM" e link "← Portal IFSISTEM" | feito (tela de entrada/erro) |
+| Só o access_token vai ao backend; sem HTML injetado | feito (React escapa; sem `dangerouslySetInnerHTML`) |
 
-## Relatório
-- **STATUS:** PARCIAL (código pronto e testado em navegador simulado; falta cadastro do cliente no auth, deploy e validação com o auth real).
-- **FEITO:** backend como resource server (herdado do Chaves: `CurrentUser`, espelho de `Usuario` por `sub`); módulo com `/api/atendimentos` e `/api/horarios-atendimento`;
-  front com login direto (sem botão intermediário, rota pretendida restaurada após o callback, "Conectando ao IFSISTEM…" após 5 s, erro com "Tentar novamente"),
-  401 → login, 403 → "Seu perfil não tem acesso a esta ação.", tela **Usuários** (SERVIDOR/ADMINISTRADOR) pela API do auth, **Trocar minha senha** (todos),
-  diálogos próprios (sem `alert/confirm/prompt`), menu em gaveta ≤1024 px, tabela em cards ≤600 px, sem rolagem horizontal em 360 px.
-  Professores/servidores cadastram os próprios horários em **Meus horários** (o primeiro horário os habilita como profissionais de atendimento).
-- **TESTADO:** `npm test` (3 ok); Chromium headless com API/SSO simulados (entrada, filtros, atendimento, chat, usuários, senha, horários, gaveta a 360 px, 0 erros de console); screenshots em `docs/screenshots/ifsistem/`.
-  Backend **não compilado aqui** (sem JDK/Maven): rode `./mvnw clean verify`.
-- **PENDÊNCIAS:** (a) bloco `auth.clientes` acima; (b) variáveis da Render acima; (c) JSON do portal acima; (d) usar o auth real exige o cliente cadastrado; (e) o visual segue o Guia Visual IF Conect enviado (verdes #14532D/#22C55E/#15803D), não o #2F9E41 do prompt: avise se preferir o do prompt.
+## Passo 4 · Testes
+- `AtendimentoSecurityTest` (novo): 401 sem token; aluno autenticado acessa o módulo; 403 para aluno cadastrar horário; professor cadastra horário e o aluno o vê. Usa `SsoTestTokens` e `JwtDecoder` mock, sem chamar o auth.
+- `AtendimentoDemoTest` (banco fictício, permissões, fluxo completo) e `DisponibilidadeServiceTest`.
+- Front: `npm test` (3) e Chromium headless com API/SSO simulados.
+
+## Banco de dados (Supabase)
+Execute `supabase/atendimento-schema.sql` no SQL Editor (uma vez; idempotente). Cria o schema privado `app_private`, as tabelas `profissional_atendimento`, `horario_atendimento`, `atendimento`, `mensagem_atendimento` (e `usuarios`, se ainda não existir), chaves estrangeiras, regras de integridade, índices e RLS. O backend com `ddl-auto=update` reconhece a estrutura e só acrescenta o que faltar.
+
+## Passo 5 · Entrega
+Variáveis na Render: `SPRING_PROFILES_ACTIVE=supabase`, `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `DB_POOL_SIZE`, `APP_ALLOWED_ORIGINS=https://atendimentoalunofrontend.vercel.app`, `AUTH_URL` (opcional). Sem `JWT_SECRET`/`ADMIN_*`.
+Vercel: `VITE_API_URL` = URL pública do backend; `VITE_PORTAL_URL` opcional.
+
+## Relatório final
+STATUS: PARCIAL
+FEITO: levantamento (Passo 0); módulo sobre a base já integrada ao SSO; front com login direto, callback com rota restaurada, usuários, troca de senha e horários; conferência do checklist acima.
+ARQUIVOS: `atendimento/**` (backend), `AtendimentoSecurityTest`, `Dockerfile.backend`, `render.yaml`; `frontend/**` (src, public/sso.js, callback.js).
+TESTADO: **backend não compilado nem executado aqui (sem JDK/Maven): contagem de testes antes/depois indisponível; rodar `./mvnw clean verify`**; front: `npm test` 3/3 e navegador simulado sem erros; login real não validado (cliente ainda não cadastrado).
+PENDÊNCIAS: bloco `auth.clientes[N]` acima; variáveis da Render/Vercel; URL final `https://atendimentoalunofrontend.vercel.app` para ativar o card no portal; cadastrar `profissional_atendimento` só ocorre quando o professor/servidor cria o primeiro horário.
